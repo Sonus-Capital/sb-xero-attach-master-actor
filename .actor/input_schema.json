@@ -1,12 +1,13 @@
 {
-  "title": "SB Xero Attach Master Handoff",
-  "type": "object",
+  "title": "SB Xero Attach Master Actor input",
   "schemaVersion": 1,
+  "type": "object",
   "properties": {
     "json": {
-      "title": "JSON payload from Make",
+      "title": "Year + Links JSON",
       "type": "string",
-      "description": "Paste the string you send from Make (with Year + Links)."
+      "description": "Raw JSON string like {\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}\"}",
+      "editor": "json"
     }
   },
   "required": ["json"]
