@@ -158,21 +158,10 @@ def merge_and_classify(rows):
 # ---------- Apify entrypoint ----------
 
 async def main():
-    """
-    - Reads `json` (string) from Actor input.
-    - That string is exactly what Make outputs, e.g.:
-
-      {
-        "json": "{\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {...}, {...}\"}"
-      }
-
-    - Downloads the 3 CSVs
-    - Merges + classifies them
-    - Stores CSV file + JSON summary output
-    """
     async with Actor:
         actor_input = await Actor.get_input() or {}
 
+        # Make is sending: { "json": "<big string>" }
         raw = actor_input.get("json") or ""
         if not raw:
             await Actor.set_output({
@@ -204,7 +193,7 @@ async def main():
             })
             return
 
-        # 2) Turn the Links string into proper JSON array: "[ {...}, {...}, {...} ]"
+        # 2) Turn the Links string into JSON array: "[ {...}, {...}, {...} ]"
         links_json = "[" + links_blob + "]"
         try:
             link_items = json.loads(links_json)
@@ -264,7 +253,6 @@ async def main():
 
         master_csv = buf.getvalue()
 
-        # Store CSV in default KV store so you can download it
         filename = f"attach_master_{year}.csv" if year else "attach_master.csv"
         await Actor.set_value(
             filename,
@@ -272,7 +260,6 @@ async def main():
             content_type="text/csv; charset=utf-8",
         )
 
-        # JSON output
         await Actor.set_output({
             "ok": True,
             "year": year,
@@ -280,7 +267,3 @@ async def main():
             "groups": group_count,
             "csv_key": filename,
         })
-
-
-if __name__ == "__main__":
-    Actor.run(main)
