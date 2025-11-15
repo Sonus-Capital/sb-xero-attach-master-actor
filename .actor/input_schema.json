@@ -1,13 +1,20 @@
 {
-  "title": "SB Xero Attach Master Actor input",
-  "type": "object",
-  "schemaVersion": 1,
-  "properties": {
-    "json": {
-      "title": "Year + Links blob (stringified JSON)",
-      "type": "string",
-      "editor": "textarea"
-    }
-  },
-  "required": ["json"]
+  "actorSpecification": 1,
+  "name": "sb-xero-attach-master-actor",
+  "title": "SB Xero Attach Master Actor",
+  "description": "Takes a single JSON string with Year and Links, downloads 3+ Dropbox CSVs, merges and classifies them into a master attachment map.",
+  "version": "0.0",
+  "input": {
+    "title": "Attach Master Input",
+    "type": "object",
+    "properties": {
+      "json": {
+        "title": "Year+Links payload (JSON string)",
+        "description": "Exactly the string produced by Make, e.g. {\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}\"}",
+        "type": "string",
+        "editor": "textfield"
+      }
+    },
+    "required": ["json"]
+  }
 }
