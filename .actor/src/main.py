@@ -156,7 +156,7 @@ def merge_and_classify(rows):
     return fieldnames, rows, len(groups)
 
 
-# ---------- main entrypoint (called via __main__.py / Actor.run) ----------
+# ---------- main entrypoint used by Actor.run ----------
 
 
 async def main():
