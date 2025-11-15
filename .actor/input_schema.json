@@ -7,7 +7,7 @@
       "title": "Year + Links JSON",
       "type": "string",
       "description": "Raw JSON string like {\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}\"}",
-      "editor": "json"
+      "editor": "textarea"
     }
   },
   "required": ["json"]
