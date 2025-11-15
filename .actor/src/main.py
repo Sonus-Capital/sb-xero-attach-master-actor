@@ -1,3 +1,5 @@
+# src/main.py
+
 import json
 import csv
 import io
@@ -6,6 +8,7 @@ import urllib.request
 from apify import Actor
 
 # ---------- helpers ----------
+
 
 def norm(s):
     if s is None:
@@ -154,7 +157,8 @@ def merge_and_classify(rows):
     return fieldnames, rows, len(groups)
 
 
-# ---------- main entrypoint ----------
+# ---------- main entrypoint (called via Actor.run in __main__.py) ----------
+
 
 async def main():
     """
@@ -170,33 +174,39 @@ async def main():
         # Your Year+Links JSON is in actor_input["input"]
         raw = actor_input.get("input") or actor_input.get("json") or ""
         if not raw:
-            await Actor.set_output({
-                "ok": False,
-                "error": "Missing 'input' (or 'json') field in actor input.",
-                "actor_input": actor_input,
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": "Missing 'input' (or 'json') field in actor input.",
+                    "actor_input": actor_input,
+                }
+            )
             return
 
         # 1) Parse outer {"Year": "...", "Links": "..."}
         try:
             payload = json.loads(raw)
         except Exception as e:
-            await Actor.set_output({
-                "ok": False,
-                "error": f"Failed to json.loads() outer json: {e}",
-                "raw_sample": raw[:200],
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": f"Failed to json.loads() outer json: {e}",
+                    "raw_sample": raw[:200],
+                }
+            )
             return
 
         year = str(payload.get("Year") or "")
         links_blob = payload.get("Links") or ""
 
         if not year or not links_blob.strip():
-            await Actor.set_output({
-                "ok": False,
-                "error": "Year or Links missing/empty after parsing.",
-                "payload": payload,
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": "Year or Links missing/empty after parsing.",
+                    "payload": payload,
+                }
+            )
             return
 
         # 2) Turn the Links string into proper JSON array: "[ {...}, {...}, {...} ]"
@@ -204,22 +214,26 @@ async def main():
         try:
             link_items = json.loads(links_json)
         except Exception as e:
-            await Actor.set_output({
-                "ok": False,
-                "error": f"Failed to parse Links blob into JSON array: {e}",
-                "links_blob_sample": links_blob[:200],
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": f"Failed to parse Links blob into JSON array: {e}",
+                    "links_blob_sample": links_blob[:200],
+                }
+            )
             return
 
         # 3) Extract TempLink values
         urls = [item.get("TempLink") for item in link_items if item.get("TempLink")]
         if not urls:
-            await Actor.set_output({
-                "ok": False,
-                "error": "No TempLink entries found after parsing.",
-                "year": year,
-                "link_items": link_items,
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": "No TempLink entries found after parsing.",
+                    "year": year,
+                    "link_items": link_items,
+                }
+            )
             return
 
         # 4) Download CSVs, merge, classify
@@ -242,11 +256,13 @@ async def main():
                 all_rows.append(row)
 
         if not all_rows:
-            await Actor.set_output({
-                "ok": False,
-                "error": "No rows parsed from any CSV.",
-                "year": year,
-            })
+            await Actor.set_output(
+                {
+                    "ok": False,
+                    "error": "No rows parsed from any CSV.",
+                    "year": year,
+                }
+            )
             return
 
         fieldnames, processed_rows, group_count = merge_and_classify(all_rows)
@@ -259,10 +275,12 @@ async def main():
 
         master_csv = buf.getvalue()
 
-        await Actor.set_output({
-            "ok": True,
-            "year": year,
-            "rows": len(processed_rows),
-            "groups": group_count,
-            "master_csv": master_csv,
-        })
+        await Actor.set_output(
+            {
+                "ok": True,
+                "year": year,
+                "rows": len(processed_rows),
+                "groups": group_count,
+                "master_csv": master_csv,
+            }
+        )
