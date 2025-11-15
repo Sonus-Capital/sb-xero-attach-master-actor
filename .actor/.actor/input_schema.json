@@ -1,0 +1,13 @@
+{
+  "title": "SB Xero Attach Master Handoff",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "json": {
+      "title": "JSON payload from Make",
+      "type": "string",
+      "description": "Paste the string you send from Make (with Year + Links)."
+    }
+  },
+  "required": ["json"]
+}
