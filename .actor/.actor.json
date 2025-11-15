@@ -2,10 +2,11 @@
   "actorSpecification": 1,
   "name": "sb-xero-attach-master-actor",
   "title": "SB Xero Attach Master Actor",
-  "description": "Merges 3+ CSVs from Dropbox TempLinks into a s...",
+  "description": "Merges 3+ CSVs from Dropbox TempLinks into a single master attachment CSV.",
   "version": "0.0.1",
   "buildTag": "latest",
-  "dockerContextDir": ".",
+  "dockerfile": "../Dockerfile",
+  "dockerContextDir": "..",
   "environmentVariables": {},
   "meta": {
     "templateId": "python"
