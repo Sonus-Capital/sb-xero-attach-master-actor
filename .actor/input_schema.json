@@ -1,12 +1,11 @@
 {
   "title": "SB Xero Attach Master Actor input",
-  "schemaVersion": 1,
   "type": "object",
+  "schemaVersion": 1,
   "properties": {
     "json": {
-      "title": "Year + Links JSON",
+      "title": "Year + Links blob (stringified JSON)",
       "type": "string",
-      "description": "Raw JSON string like {\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}\"}",
       "editor": "textarea"
     }
   },
