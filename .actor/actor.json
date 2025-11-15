@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "sb-xero-attach-master-actor",
+  "title": "SB Xero Attach Master (Python)",
+  "version": "0.0.1",
+  "buildTag": "latest",
+  "environmentVariables": [],
+  "Dockerfile": "Dockerfile"
+}
