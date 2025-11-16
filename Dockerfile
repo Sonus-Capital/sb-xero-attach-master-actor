@@ -1,10 +1,10 @@
 FROM apify/actor-python:3.13
 
-# Copy the whole repo (including src/, .actor/, etc.)
+# Copy everything (including .actor/)
 COPY . ./
 
-# Install dependencies if any
+# Install deps if present
 RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-# Run the src package (this calls src/__main__.py)
-CMD ["python", "-m", "src"]
+# Run our actual main.py inside .actor/src
+CMD ["python", ".actor/src/main.py"]
