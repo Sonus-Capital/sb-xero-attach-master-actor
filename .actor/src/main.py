@@ -265,5 +265,10 @@ async def main():
             "year": year,
             "rows": len(processed_rows),
             "groups": group_count,
-            "csv_key": filename,
+            "csv_key": filename
         })
+
+
+# This is what Apify's test + runtime will call
+if __name__ == "__main__":
+    Actor.run(main)
