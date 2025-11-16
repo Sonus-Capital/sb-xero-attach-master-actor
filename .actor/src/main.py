@@ -275,3 +275,7 @@ async def main():
         await Actor.log(
             f"Done. Year={year}, rows={len(processed_rows)}, groups={group_count}, file={filename}"
         )
+
+
+if __name__ == "__main__":
+    Actor.run(main)
