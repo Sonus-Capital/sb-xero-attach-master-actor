@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "schema": {
+    "title": "SB Xero Attach Master Input",
+    "type": "object",
+    "properties": {
+      "json": {
+        "title": "Year+Links payload (JSON string)",
+        "description": "Exactly the string from Make, e.g. {\"Year\":\"2016\",\"Links\":\"{\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}, {\\\"TempLink\\\":\\\"https://...\\\"}\"}",
+        "type": "string",
+        "editor": "textarea"
+      }
+    },
+    "required": ["json"]
+  }
+}
