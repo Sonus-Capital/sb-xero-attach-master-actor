@@ -9,7 +9,6 @@ from apify import Actor
 
 # ---------- helpers ----------
 
-
 def norm(s):
     if s is None:
         return ""
@@ -159,16 +158,18 @@ def merge_and_classify(rows):
 
 # ---------- Apify entrypoint ----------
 
-
-async def main():
+async def main() -> None:
     async with Actor:
         actor_input = await Actor.get_input() or {}
-
-        # Debug: log what keys we actually got
         Actor.log.info(f"Actor input keys: {list(actor_input.keys())}")
 
         # Make is sending: { "json": "<big string>" }
-        raw = actor_input.get("json") or ""
+        raw = (
+            actor_input.get("json")
+            or actor_input.get("input")
+            or actor_input.get("payload")
+            or ""
+        )
         if not raw:
             await Actor.set_value(
                 "OUTPUT",
@@ -189,7 +190,7 @@ async def main():
                 {
                     "ok": False,
                     "error": f"Failed to json.loads() outer json: {e}",
-                    "raw_sample": raw[:200],
+                    "raw_sample": raw[:500],
                 },
             )
             return
@@ -218,7 +219,7 @@ async def main():
                 {
                     "ok": False,
                     "error": f"Failed to parse Links blob into JSON array: {e}",
-                    "links_blob_sample": links_blob[:200],
+                    "links_blob_sample": links_blob[:500],
                 },
             )
             return
@@ -279,24 +280,23 @@ async def main():
 
         filename = f"attach_master_{year}.csv" if year else "attach_master.csv"
 
-        # Save the CSV file itself
+        # Store the CSV as a separate key in the default key-value store
         await Actor.set_value(
             filename,
             master_csv,
             content_type="text/csv; charset=utf-8",
         )
 
-        # Save the OUTPUT record for Apify run result
-        await Actor.set_value(
-            "OUTPUT",
-            {
-                "ok": True,
-                "year": year,
-                "rows": len(processed_rows),
-                "groups": group_count,
-                "csv_key": filename,
-            },
-        )
+        output_payload = {
+            "ok": True,
+            "year": year,
+            "rows": len(processed_rows),
+            "groups": group_count,
+            "csv_key": filename,
+        }
+
+        # This is what appears in the "Output" tab in Apify console
+        await Actor.set_value("OUTPUT", output_payload)
 
         Actor.log.info(
             f"Done. Year={year}, rows={len(processed_rows)}, "
@@ -305,5 +305,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Let the Apify SDK handle init/teardown and run our async main()
-    Actor.main(main)
+    asyncio.run(main())
