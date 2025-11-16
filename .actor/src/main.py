@@ -160,7 +160,6 @@ def merge_and_classify(rows):
 # ---------- main ----------
 
 async def main():
-    # Use explicit init/exit (matches docs + avoids Actor.run confusion)
     await Actor.init()
     try:
         actor_input = await Actor.get_input() or {}
@@ -175,6 +174,8 @@ async def main():
             except Exception:
                 raw = str(raw)
 
+        Actor.log.info(f"Raw 'json' sample: {raw[:400]}")
+
         if not raw:
             Actor.log.error("Missing 'json' (or 'input') field in actor input.")
             await Actor.set_value("OUTPUT", {
@@ -185,39 +186,49 @@ async def main():
             })
             return
 
-        # 1) Parse outer {"Year": "...", "Links": "..."}
+        # 1) Try to parse outer {"Year": "...", "Links": "..."}
+        payload = None
         try:
             payload = json.loads(raw)
         except Exception as e:
-            Actor.log.exception("Failed to json.loads() outer json")
+            Actor.log.exception("Failed to json.loads() outer json, will fall back to regex parsing")
+        else:
+            Actor.log.info(
+                f"Parsed payload type={type(payload)}, repr={str(payload)[:300]}"
+            )
+
+        year = ""
+        links_blob = ""
+
+        # First, try to read from parsed dict if available
+        if isinstance(payload, dict):
+            year = str(payload.get("Year") or payload.get("year") or "")
+            lb = payload.get("Links") or payload.get("links") or ""
+            if isinstance(lb, str):
+                links_blob = lb
+
+        # Fallback: if year still blank, regex it out of the raw string
+        if not year:
+            m = re.search(r'"Year"\s*:\s*"([^"]+)"', raw)
+            if m:
+                year = m.group(1)
+                Actor.log.info(f"Recovered Year from raw via regex: {year}")
+
+        # Fallback: recover Links blob by hunting {\"TempLink\"...} fragments
+        if not links_blob.strip():
+            parts = re.findall(r'\{\s*\\?"TempLink\\?".*?}', raw)
+            if parts:
+                links_blob = ", ".join(parts)
+                Actor.log.info(f"Recovered links_blob via regex with {len(parts)} elements")
+
+        if not links_blob.strip():
+            Actor.log.error("Could not find Links blob even after fallback recovery.")
             await Actor.set_value("OUTPUT", {
                 "ok": False,
-                "stage": "parse_outer",
-                "error": f"{e}",
+                "stage": "missing_links_after_recovery",
+                "error": "Links blob not found in payload or raw string.",
                 "raw_sample": raw[:500],
-            })
-            return
-
-        year = str(payload.get("Year") or "")
-        links_blob = payload.get("Links") or ""
-
-        if not isinstance(links_blob, str):
-            Actor.log.error("Links is not a string in payload.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "links_not_string",
-                "error": "Links field is not a string.",
-                "payload_sample": json.dumps(payload)[:500],
-            })
-            return
-
-        if not year or not links_blob.strip():
-            Actor.log.error("Year or Links missing/empty after parsing.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "missing_year_or_links",
-                "error": "Year or Links missing/empty after parsing.",
-                "payload": payload,
+                "payload_repr": str(payload)[:500] if payload is not None else None,
             })
             return
 
