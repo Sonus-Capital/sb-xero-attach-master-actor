@@ -1,11 +1,12 @@
 import asyncio
-import json
 import csv
 import io
+import json
 import re
 import urllib.request
 
 from apify import Actor
+
 
 # ---------- helpers ----------
 
@@ -156,57 +157,68 @@ def merge_and_classify(rows):
     return fieldnames, rows, len(groups)
 
 
-# ---------- Apify entrypoint ----------
+# ---------- main ----------
 
-async def main() -> None:
-    async with Actor:
+async def main():
+    # Use explicit init/exit (matches docs + avoids Actor.run confusion)
+    await Actor.init()
+    try:
         actor_input = await Actor.get_input() or {}
         Actor.log.info(f"Actor input keys: {list(actor_input.keys())}")
 
         # Make is sending: { "json": "<big string>" }
-        raw = (
-            actor_input.get("json")
-            or actor_input.get("input")
-            or actor_input.get("payload")
-            or ""
-        )
+        raw = actor_input.get("json") or actor_input.get("input") or ""
+        if not isinstance(raw, str):
+            Actor.log.info(f"'json' field is not a string, got {type(raw)}, json-dumping it")
+            try:
+                raw = json.dumps(raw)
+            except Exception:
+                raw = str(raw)
+
         if not raw:
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": "Missing 'json' field in actor input.",
-                    "actor_input": actor_input,
-                },
-            )
+            Actor.log.error("Missing 'json' (or 'input') field in actor input.")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "missing_json",
+                "error": "Missing 'json' (or 'input') field in actor input.",
+                "actor_input_keys": list(actor_input.keys()),
+            })
             return
 
         # 1) Parse outer {"Year": "...", "Links": "..."}
         try:
             payload = json.loads(raw)
         except Exception as e:
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": f"Failed to json.loads() outer json: {e}",
-                    "raw_sample": raw[:500],
-                },
-            )
+            Actor.log.exception("Failed to json.loads() outer json")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "parse_outer",
+                "error": f"{e}",
+                "raw_sample": raw[:500],
+            })
             return
 
         year = str(payload.get("Year") or "")
         links_blob = payload.get("Links") or ""
 
+        if not isinstance(links_blob, str):
+            Actor.log.error("Links is not a string in payload.")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "links_not_string",
+                "error": "Links field is not a string.",
+                "payload_sample": json.dumps(payload)[:500],
+            })
+            return
+
         if not year or not links_blob.strip():
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": "Year or Links missing/empty after parsing.",
-                    "payload": payload,
-                },
-            )
+            Actor.log.error("Year or Links missing/empty after parsing.")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "missing_year_or_links",
+                "error": "Year or Links missing/empty after parsing.",
+                "payload": payload,
+            })
             return
 
         # 2) Turn the Links string into JSON array: "[ {...}, {...}, {...} ]"
@@ -214,39 +226,43 @@ async def main() -> None:
         try:
             link_items = json.loads(links_json)
         except Exception as e:
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": f"Failed to parse Links blob into JSON array: {e}",
-                    "links_blob_sample": links_blob[:500],
-                },
-            )
+            Actor.log.exception("Failed to parse Links blob into JSON array")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "parse_links",
+                "error": f"{e}",
+                "links_blob_sample": links_blob[:500],
+            })
             return
 
         # 3) Extract TempLink values
-        urls = [item.get("TempLink") for item in link_items if item.get("TempLink")]
+        urls = [
+            item.get("TempLink")
+            for item in link_items
+            if isinstance(item, dict) and item.get("TempLink")
+        ]
+        Actor.log.info(f"Parsed {len(urls)} TempLink URLs from Links")
+
         if not urls:
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": "No TempLink entries found after parsing.",
-                    "year": year,
-                    "link_items": link_items,
-                },
-            )
+            Actor.log.error("No TempLink entries found after parsing.")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "no_templinks",
+                "error": "No TempLink entries found after parsing.",
+                "year": year,
+                "link_items": link_items,
+            })
             return
 
         # 4) Download CSVs, merge, classify
         all_rows = []
         for url in urls:
+            Actor.log.info(f"Downloading {url}")
             try:
-                Actor.log.info(f"Downloading {url}")
                 with urllib.request.urlopen(url) as resp:
                     csv_bytes = resp.read()
             except Exception as e:
-                Actor.log.warning(f"Failed to download {url}: {e}")
+                Actor.log.error(f"Failed to download {url}: {e}")
                 continue
 
             csv_text = csv_bytes.decode("utf-8", errors="replace")
@@ -257,18 +273,23 @@ async def main() -> None:
                 row["__source_url"] = url
                 all_rows.append(row)
 
+        Actor.log.info(f"Total parsed rows from all CSVs: {len(all_rows)}")
+
         if not all_rows:
-            await Actor.set_value(
-                "OUTPUT",
-                {
-                    "ok": False,
-                    "error": "No rows parsed from any CSV.",
-                    "year": year,
-                },
-            )
+            Actor.log.error("No rows parsed from any CSV.")
+            await Actor.set_value("OUTPUT", {
+                "ok": False,
+                "stage": "no_rows",
+                "error": "No rows parsed from any CSV.",
+                "year": year,
+                "urls": urls,
+            })
             return
 
         fieldnames, processed_rows, group_count = merge_and_classify(all_rows)
+        Actor.log.info(
+            f"After grouping: {group_count} groups, {len(processed_rows)} rows"
+        )
 
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
@@ -280,28 +301,28 @@ async def main() -> None:
 
         filename = f"attach_master_{year}.csv" if year else "attach_master.csv"
 
-        # Store the CSV as a separate key in the default key-value store
+        # Save file + structured OUTPUT
         await Actor.set_value(
             filename,
             master_csv,
             content_type="text/csv; charset=utf-8",
         )
 
-        output_payload = {
+        await Actor.set_value("OUTPUT", {
             "ok": True,
             "year": year,
             "rows": len(processed_rows),
             "groups": group_count,
             "csv_key": filename,
-        }
-
-        # This is what appears in the "Output" tab in Apify console
-        await Actor.set_value("OUTPUT", output_payload)
+        })
 
         Actor.log.info(
             f"Done. Year={year}, rows={len(processed_rows)}, "
             f"groups={group_count}, file={filename}"
         )
+
+    finally:
+        await Actor.exit()
 
 
 if __name__ == "__main__":
