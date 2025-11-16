@@ -5,11 +5,8 @@
   "description": "Merges 3+ CSVs from Dropbox TempLinks into a single master attachment CSV.",
   "version": "0.0.1",
   "buildTag": "latest",
-
   "dockerfile": "./Dockerfile",
   "dockerContextDir": ".",
-
-  "environmentVariables": {},
   "meta": {
     "templateId": "python"
   },
