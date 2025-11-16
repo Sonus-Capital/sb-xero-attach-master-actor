@@ -3,8 +3,8 @@ FROM apify/actor-python:3.13
 # Copy the whole repo (including src/, .actor/, etc.)
 COPY . ./
 
-# Dependencies (you probably don't even need requirements.txt, but this is safe)
+# Install Python dependencies if you ever add requirements.txt
 RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-# Run the src package, which will call our __main__.py
-CMD ["python", "-m", "src"]
+# Run our main module explicitly
+CMD ["python", "-m", "src.main"]
