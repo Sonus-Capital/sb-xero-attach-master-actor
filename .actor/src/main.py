@@ -219,13 +219,13 @@ async def main():
         # 4) Download CSVs, merge, classify
         all_rows = []
         for url in urls:
-            try:
-                await Actor.log(f"Downloading {url}")
-                with urllib.request.urlopen(url) as resp:
-                    csv_bytes = resp.read()
-            except Exception as e:
-                await Actor.log(f"Failed to download {url}: {e}")
-                continue
+    try:
+        Actor.log.info(f"Downloading {url}")
+        with urllib.request.urlopen(url) as resp:
+            csv_bytes = resp.read()
+    except Exception as e:
+        Actor.log.warning(f"Failed to download {url}: {e}")
+        continue
 
             csv_text = csv_bytes.decode("utf-8", errors="replace")
             reader = csv.DictReader(io.StringIO(csv_text))
@@ -260,18 +260,17 @@ async def main():
             content_type="text/csv; charset=utf-8",
         )
 
-        await Actor.set_output({
-            "ok": True,
-            "year": year,
-            "rows": len(processed_rows),
-            "groups": group_count,
-            "csv_key": filename,
-        })
+await Actor.set_output({
+    "ok": True,
+    "year": year,
+    "rows": len(processed_rows),
+    "groups": group_count,
+    "csv_key": filename,
+})
 
-        await Actor.log(
-            f"Done. Year={year}, rows={len(processed_rows)}, "
-            f"groups={group_count}, file={filename}"
-        )
+Actor.log.info(
+    f"Done. Year={year}, rows={len(processed_rows)}, groups={group_count}, file={filename}"
+)
 
 
 import asyncio
