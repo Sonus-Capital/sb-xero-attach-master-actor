@@ -264,7 +264,7 @@ async def main():
             content_type="text/csv; charset=utf-8",
         )
 
-        await Actor.set_output({
+         await Actor.set_output({
             "ok": True,
             "year": year,
             "rows": len(processed_rows),
@@ -277,5 +277,7 @@ async def main():
         )
 
 
+import asyncio
+
 if __name__ == "__main__":
-    Actor.run(main)
+    asyncio.run(main())
