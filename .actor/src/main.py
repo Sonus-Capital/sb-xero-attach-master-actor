@@ -1,3 +1,4 @@
+import asyncio
 import json
 import csv
 import io
@@ -6,8 +7,8 @@ import urllib.request
 
 from apify import Actor
 
-
 # ---------- helpers ----------
+
 
 def norm(s):
     if s is None:
@@ -158,45 +159,53 @@ def merge_and_classify(rows):
 
 # ---------- Apify entrypoint ----------
 
+
 async def main():
     async with Actor:
-        # You’ll see this in the run log, so we can confirm what Make sent
         actor_input = await Actor.get_input() or {}
+
+        # Debug: log what keys we actually got
         Actor.log.info(f"Actor input keys: {list(actor_input.keys())}")
 
         # Make is sending: { "json": "<big string>" }
         raw = actor_input.get("json") or ""
         if not raw:
-            Actor.log.warning("Missing 'json' field in actor input.")
-            await Actor.set_output({
-                "ok": False,
-                "error": "Missing 'json' field in actor input.",
-                "actor_input": actor_input,
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": "Missing 'json' field in actor input.",
+                    "actor_input": actor_input,
+                },
+            )
             return
 
         # 1) Parse outer {"Year": "...", "Links": "..."}
         try:
             payload = json.loads(raw)
         except Exception as e:
-            Actor.log.error(f"Failed to json.loads() outer json: {e}")
-            await Actor.set_output({
-                "ok": False,
-                "error": f"Failed to json.loads() outer json: {e}",
-                "raw_sample": raw[:200],
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": f"Failed to json.loads() outer json: {e}",
+                    "raw_sample": raw[:200],
+                },
+            )
             return
 
         year = str(payload.get("Year") or "")
         links_blob = payload.get("Links") or ""
 
         if not year or not links_blob.strip():
-            Actor.log.error("Year or Links missing/empty after parsing.")
-            await Actor.set_output({
-                "ok": False,
-                "error": "Year or Links missing/empty after parsing.",
-                "payload": payload,
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": "Year or Links missing/empty after parsing.",
+                    "payload": payload,
+                },
+            )
             return
 
         # 2) Turn the Links string into JSON array: "[ {...}, {...}, {...} ]"
@@ -204,24 +213,28 @@ async def main():
         try:
             link_items = json.loads(links_json)
         except Exception as e:
-            Actor.log.error(f"Failed to parse Links blob into JSON array: {e}")
-            await Actor.set_output({
-                "ok": False,
-                "error": f"Failed to parse Links blob into JSON array: {e}",
-                "links_blob_sample": links_blob[:200],
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": f"Failed to parse Links blob into JSON array: {e}",
+                    "links_blob_sample": links_blob[:200],
+                },
+            )
             return
 
         # 3) Extract TempLink values
         urls = [item.get("TempLink") for item in link_items if item.get("TempLink")]
         if not urls:
-            Actor.log.error("No TempLink entries found after parsing.")
-            await Actor.set_output({
-                "ok": False,
-                "error": "No TempLink entries found after parsing.",
-                "year": year,
-                "link_items": link_items,
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": "No TempLink entries found after parsing.",
+                    "year": year,
+                    "link_items": link_items,
+                },
+            )
             return
 
         # 4) Download CSVs, merge, classify
@@ -244,12 +257,14 @@ async def main():
                 all_rows.append(row)
 
         if not all_rows:
-            Actor.log.error("No rows parsed from any CSV.")
-            await Actor.set_output({
-                "ok": False,
-                "error": "No rows parsed from any CSV.",
-                "year": year,
-            })
+            await Actor.set_value(
+                "OUTPUT",
+                {
+                    "ok": False,
+                    "error": "No rows parsed from any CSV.",
+                    "year": year,
+                },
+            )
             return
 
         fieldnames, processed_rows, group_count = merge_and_classify(all_rows)
@@ -263,19 +278,25 @@ async def main():
         master_csv = buf.getvalue()
 
         filename = f"attach_master_{year}.csv" if year else "attach_master.csv"
+
+        # Save the CSV file itself
         await Actor.set_value(
             filename,
             master_csv,
             content_type="text/csv; charset=utf-8",
         )
 
-        await Actor.set_output({
-            "ok": True,
-            "year": year,
-            "rows": len(processed_rows),
-            "groups": group_count,
-            "csv_key": filename,
-        })
+        # Save the OUTPUT record for Apify run result
+        await Actor.set_value(
+            "OUTPUT",
+            {
+                "ok": True,
+                "year": year,
+                "rows": len(processed_rows),
+                "groups": group_count,
+                "csv_key": filename,
+            },
+        )
 
         Actor.log.info(
             f"Done. Year={year}, rows={len(processed_rows)}, "
@@ -284,5 +305,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    # Let the Apify SDK handle init/teardown and run our async main()
+    Actor.main(main)
