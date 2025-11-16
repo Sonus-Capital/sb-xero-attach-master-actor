@@ -1,12 +1,11 @@
-import asyncio
+import os
+import json
 import csv
 import io
-import json
 import re
 import urllib.request
 
 from apify import Actor
-
 
 # ---------- helpers ----------
 
@@ -157,79 +156,115 @@ def merge_and_classify(rows):
     return fieldnames, rows, len(groups)
 
 
-# ---------- main ----------
+# ---------- Dropbox upload helper ----------
+
+async def upload_to_dropbox(filename: str, csv_text: str, year: str | None = None):
+    """
+    Upload the CSV to Dropbox and (optionally) apply a tag.
+
+    Environment variables (set on the Actor):
+      - DROPBOX_TOKEN   (required) OAuth2 Bearer token
+      - DROPBOX_ROOT    (optional) folder path, default "/Sona/Milseain & Progeny Invoices/_outputs"
+      - DROPBOX_TAG     (optional) tag text, e.g. "sbpage"
+    """
+    token = os.getenv("DROPBOX_TOKEN")
+    root = os.getenv("DROPBOX_ROOT", "/Sona/Milseain & Progeny Invoices/_outputs")
+    tag = os.getenv("DROPBOX_TAG", "sbpage")
+
+    if not token:
+        Actor.log.warning("DROPBOX_TOKEN not set; skipping Dropbox upload.")
+        return None
+
+    path = f"{root.rstrip('/')}/{filename}"
+    data = csv_text.encode("utf-8")
+
+    # /2/files/upload
+    api_arg = json.dumps({
+        "path": path,
+        "mode": "overwrite",
+        "mute": False,
+        "autorename": False,
+    })
+
+    req = urllib.request.Request(
+        "https://content.dropboxapi.com/2/files/upload",
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream",
+            "Dropbox-API-Arg": api_arg,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            resp_data = resp.read()
+        info = json.loads(resp_data.decode("utf-8"))
+        path_lower = info.get("path_lower") or path.lower()
+        Actor.log.info(f"Uploaded CSV to Dropbox at {path_lower}")
+    except Exception as e:
+        Actor.log.error(f"Dropbox upload failed: {e}")
+        return None
+
+    # Optionally add a tag (matches your existing tagging approach)
+    if tag:
+        try:
+            body = json.dumps({
+                "path": path_lower,
+                "tag_text": tag,
+            }).encode("utf-8")
+
+            tag_req = urllib.request.Request(
+                "https://api.dropboxapi.com/2/files/tags/add",
+                data=body,
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(tag_req) as resp:
+                _ = resp.read()
+            Actor.log.info(f"Applied Dropbox tag '{tag}' to {path_lower}")
+        except Exception as e:
+            Actor.log.error(f"Dropbox tag add failed: {e}")
+
+    return path
+
+
+# ---------- Apify entrypoint ----------
 
 async def main():
-    await Actor.init()
-    try:
+    async with Actor:
         actor_input = await Actor.get_input() or {}
         Actor.log.info(f"Actor input keys: {list(actor_input.keys())}")
 
         # Make is sending: { "json": "<big string>" }
-        raw = actor_input.get("json") or actor_input.get("input") or ""
-        if not isinstance(raw, str):
-            Actor.log.info(f"'json' field is not a string, got {type(raw)}, json-dumping it")
-            try:
-                raw = json.dumps(raw)
-            except Exception:
-                raw = str(raw)
-
-        Actor.log.info(f"Raw 'json' sample: {raw[:400]}")
-
+        raw = actor_input.get("json") or ""
         if not raw:
-            Actor.log.error("Missing 'json' (or 'input') field in actor input.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "missing_json",
-                "error": "Missing 'json' (or 'input') field in actor input.",
-                "actor_input_keys": list(actor_input.keys()),
-            })
+            Actor.log.error("Missing 'json' field in actor input.")
             return
 
-        # 1) Try to parse outer {"Year": "...", "Links": "..."}
-        payload = None
+        Actor.log.info(f"Raw 'json' sample: {raw[:200]}")
+
+        # 1) Parse outer {"Year": "...", "Links": "..."}
         try:
             payload = json.loads(raw)
         except Exception as e:
-            Actor.log.exception("Failed to json.loads() outer json, will fall back to regex parsing")
-        else:
-            Actor.log.info(
-                f"Parsed payload type={type(payload)}, repr={str(payload)[:300]}"
-            )
+            Actor.log.error(f"Failed to json.loads() outer json: {e}")
+            return
 
-        year = ""
-        links_blob = ""
+        Actor.log.info(
+            f"Parsed payload type={type(payload)}"
+            f", repr={repr(str(payload))[:200]}"
+        )
 
-        # First, try to read from parsed dict if available
-        if isinstance(payload, dict):
-            year = str(payload.get("Year") or payload.get("year") or "")
-            lb = payload.get("Links") or payload.get("links") or ""
-            if isinstance(lb, str):
-                links_blob = lb
+        year = str(payload.get("Year") or "").strip()
+        links_blob = payload.get("Links") or ""
 
-        # Fallback: if year still blank, regex it out of the raw string
-        if not year:
-            m = re.search(r'"Year"\s*:\s*"([^"]+)"', raw)
-            if m:
-                year = m.group(1)
-                Actor.log.info(f"Recovered Year from raw via regex: {year}")
-
-        # Fallback: recover Links blob by hunting {\"TempLink\"...} fragments
-        if not links_blob.strip():
-            parts = re.findall(r'\{\s*\\?"TempLink\\?".*?}', raw)
-            if parts:
-                links_blob = ", ".join(parts)
-                Actor.log.info(f"Recovered links_blob via regex with {len(parts)} elements")
-
-        if not links_blob.strip():
-            Actor.log.error("Could not find Links blob even after fallback recovery.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "missing_links_after_recovery",
-                "error": "Links blob not found in payload or raw string.",
-                "raw_sample": raw[:500],
-                "payload_repr": str(payload)[:500] if payload is not None else None,
-            })
+        if not year or not links_blob.strip():
+            Actor.log.error("Year or Links missing/empty after parsing.")
             return
 
         # 2) Turn the Links string into JSON array: "[ {...}, {...}, {...} ]"
@@ -237,39 +272,24 @@ async def main():
         try:
             link_items = json.loads(links_json)
         except Exception as e:
-            Actor.log.exception("Failed to parse Links blob into JSON array")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "parse_links",
-                "error": f"{e}",
-                "links_blob_sample": links_blob[:500],
-            })
+            Actor.log.error(
+                f"Failed to parse Links blob into JSON array: {e} "
+                f"sample={links_blob[:200]}"
+            )
             return
 
-        # 3) Extract TempLink values
-        urls = [
-            item.get("TempLink")
-            for item in link_items
-            if isinstance(item, dict) and item.get("TempLink")
-        ]
+        urls = [item.get("TempLink") for item in link_items if item.get("TempLink")]
         Actor.log.info(f"Parsed {len(urls)} TempLink URLs from Links")
 
         if not urls:
             Actor.log.error("No TempLink entries found after parsing.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "no_templinks",
-                "error": "No TempLink entries found after parsing.",
-                "year": year,
-                "link_items": link_items,
-            })
             return
 
-        # 4) Download CSVs, merge, classify
+        # 3) Download CSVs and merge
         all_rows = []
         for url in urls:
-            Actor.log.info(f"Downloading {url}")
             try:
+                Actor.log.info(f"Downloading {url}")
                 with urllib.request.urlopen(url) as resp:
                     csv_bytes = resp.read()
             except Exception as e:
@@ -284,24 +304,18 @@ async def main():
                 row["__source_url"] = url
                 all_rows.append(row)
 
-        Actor.log.info(f"Total parsed rows from all CSVs: {len(all_rows)}")
-
         if not all_rows:
             Actor.log.error("No rows parsed from any CSV.")
-            await Actor.set_value("OUTPUT", {
-                "ok": False,
-                "stage": "no_rows",
-                "error": "No rows parsed from any CSV.",
-                "year": year,
-                "urls": urls,
-            })
             return
+
+        Actor.log.info(f"Total parsed rows from all CSVs: {len(all_rows)}")
 
         fieldnames, processed_rows, group_count = merge_and_classify(all_rows)
         Actor.log.info(
             f"After grouping: {group_count} groups, {len(processed_rows)} rows"
         )
 
+        # 4) Build CSV in-memory
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
@@ -312,29 +326,33 @@ async def main():
 
         filename = f"attach_master_{year}.csv" if year else "attach_master.csv"
 
-        # Save file + structured OUTPUT
+        # Save into default KV store (Apify)
         await Actor.set_value(
             filename,
             master_csv,
             content_type="text/csv; charset=utf-8",
         )
 
-        await Actor.set_value("OUTPUT", {
+        # Also upload directly to Dropbox
+        dropbox_path = await upload_to_dropbox(filename, master_csv, year)
+
+        # Structured output for debugging / Make, etc.
+        await Actor.set_output({
             "ok": True,
             "year": year,
             "rows": len(processed_rows),
             "groups": group_count,
-            "csv_key": filename,
+            "kv_key": filename,
+            "dropbox_path": dropbox_path,
         })
 
         Actor.log.info(
             f"Done. Year={year}, rows={len(processed_rows)}, "
-            f"groups={group_count}, file={filename}"
+            f"groups={group_count}, kv_key={filename}, "
+            f"dropbox_path={dropbox_path}"
         )
-
-    finally:
-        await Actor.exit()
 
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
