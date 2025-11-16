@@ -159,6 +159,8 @@ def merge_and_classify(rows):
 
 async def main():
     async with Actor:
+        await Actor.log("SB Xero Attach Master Actor: starting run")
+
         actor_input = await Actor.get_input() or {}
 
         # Make is sending: { "json": "<big string>" }
@@ -216,6 +218,8 @@ async def main():
             })
             return
 
+        await Actor.log(f"Found {len(urls)} TempLinks for year {year}")
+
         # 4) Download CSVs, merge, classify
         all_rows = []
         for url in urls:
@@ -265,10 +269,9 @@ async def main():
             "year": year,
             "rows": len(processed_rows),
             "groups": group_count,
-            "csv_key": filename
+            "csv_key": filename,
         })
 
-
-# This is what Apify's test + runtime will call
-if __name__ == "__main__":
-    Actor.run(main)
+        await Actor.log(
+            f"Done. Year={year}, rows={len(processed_rows)}, groups={group_count}, file={filename}"
+        )
