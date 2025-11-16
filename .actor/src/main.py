@@ -159,8 +159,6 @@ def merge_and_classify(rows):
 
 async def main():
     async with Actor:
-        await Actor.log("SB Xero Attach Master Actor: starting run")
-
         actor_input = await Actor.get_input() or {}
 
         # Make is sending: { "json": "<big string>" }
@@ -218,8 +216,6 @@ async def main():
             })
             return
 
-        await Actor.log(f"Found {len(urls)} TempLinks for year {year}")
-
         # 4) Download CSVs, merge, classify
         all_rows = []
         for url in urls:
@@ -264,7 +260,7 @@ async def main():
             content_type="text/csv; charset=utf-8",
         )
 
-         await Actor.set_output({
+        await Actor.set_output({
             "ok": True,
             "year": year,
             "rows": len(processed_rows),
@@ -273,7 +269,8 @@ async def main():
         })
 
         await Actor.log(
-            f"Done. Year={year}, rows={len(processed_rows)}, groups={group_count}, file={filename}"
+            f"Done. Year={year}, rows={len(processed_rows)}, "
+            f"groups={group_count}, file={filename}"
         )
 
 
