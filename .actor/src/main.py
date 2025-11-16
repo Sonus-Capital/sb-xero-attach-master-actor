@@ -6,6 +6,7 @@ import urllib.request
 
 from apify import Actor
 
+
 # ---------- helpers ----------
 
 def norm(s):
@@ -159,11 +160,14 @@ def merge_and_classify(rows):
 
 async def main():
     async with Actor:
+        # You’ll see this in the run log, so we can confirm what Make sent
         actor_input = await Actor.get_input() or {}
+        Actor.log.info(f"Actor input keys: {list(actor_input.keys())}")
 
         # Make is sending: { "json": "<big string>" }
         raw = actor_input.get("json") or ""
         if not raw:
+            Actor.log.warning("Missing 'json' field in actor input.")
             await Actor.set_output({
                 "ok": False,
                 "error": "Missing 'json' field in actor input.",
@@ -175,6 +179,7 @@ async def main():
         try:
             payload = json.loads(raw)
         except Exception as e:
+            Actor.log.error(f"Failed to json.loads() outer json: {e}")
             await Actor.set_output({
                 "ok": False,
                 "error": f"Failed to json.loads() outer json: {e}",
@@ -186,6 +191,7 @@ async def main():
         links_blob = payload.get("Links") or ""
 
         if not year or not links_blob.strip():
+            Actor.log.error("Year or Links missing/empty after parsing.")
             await Actor.set_output({
                 "ok": False,
                 "error": "Year or Links missing/empty after parsing.",
@@ -198,6 +204,7 @@ async def main():
         try:
             link_items = json.loads(links_json)
         except Exception as e:
+            Actor.log.error(f"Failed to parse Links blob into JSON array: {e}")
             await Actor.set_output({
                 "ok": False,
                 "error": f"Failed to parse Links blob into JSON array: {e}",
@@ -208,6 +215,7 @@ async def main():
         # 3) Extract TempLink values
         urls = [item.get("TempLink") for item in link_items if item.get("TempLink")]
         if not urls:
+            Actor.log.error("No TempLink entries found after parsing.")
             await Actor.set_output({
                 "ok": False,
                 "error": "No TempLink entries found after parsing.",
@@ -219,13 +227,13 @@ async def main():
         # 4) Download CSVs, merge, classify
         all_rows = []
         for url in urls:
-    try:
-        Actor.log.info(f"Downloading {url}")
-        with urllib.request.urlopen(url) as resp:
-            csv_bytes = resp.read()
-    except Exception as e:
-        Actor.log.warning(f"Failed to download {url}: {e}")
-        continue
+            try:
+                Actor.log.info(f"Downloading {url}")
+                with urllib.request.urlopen(url) as resp:
+                    csv_bytes = resp.read()
+            except Exception as e:
+                Actor.log.warning(f"Failed to download {url}: {e}")
+                continue
 
             csv_text = csv_bytes.decode("utf-8", errors="replace")
             reader = csv.DictReader(io.StringIO(csv_text))
@@ -236,6 +244,7 @@ async def main():
                 all_rows.append(row)
 
         if not all_rows:
+            Actor.log.error("No rows parsed from any CSV.")
             await Actor.set_output({
                 "ok": False,
                 "error": "No rows parsed from any CSV.",
@@ -260,20 +269,20 @@ async def main():
             content_type="text/csv; charset=utf-8",
         )
 
-await Actor.set_output({
-    "ok": True,
-    "year": year,
-    "rows": len(processed_rows),
-    "groups": group_count,
-    "csv_key": filename,
-})
+        await Actor.set_output({
+            "ok": True,
+            "year": year,
+            "rows": len(processed_rows),
+            "groups": group_count,
+            "csv_key": filename,
+        })
 
-Actor.log.info(
-    f"Done. Year={year}, rows={len(processed_rows)}, groups={group_count}, file={filename}"
-)
+        Actor.log.info(
+            f"Done. Year={year}, rows={len(processed_rows)}, "
+            f"groups={group_count}, file={filename}"
+        )
 
-
-import asyncio
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
